@@ -1,0 +1,2201 @@
+{
+  "datasets": [
+    {
+      "name": "c6465a03",
+      "displayName": "findings_registry",
+      "config": {
+        "version": "1.1",
+        "source": "workspace.pbm_sim.findings_registry",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "5679f4d3",
+      "displayName": "pbm_eligibility",
+      "config": {
+        "version": "1.1",
+        "source": "workspace.pbm_sim.pbm_eligibility",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a8d06554",
+      "displayName": "findings_member_rollup",
+      "config": {
+        "version": "1.1",
+        "source": "workspace.pbm_sim.findings_member_rollup",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "47ebc8b4",
+      "displayName": "category_breakdown",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  issue_category,\n  COUNT(*) AS findings\nFROM workspace.pbm_sim.findings_registry\nGROUP BY issue_category\nORDER BY findings DESC",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "2ea23e3e",
+      "displayName": "severity_matrix",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  issue_category,\n  severity,\n  COUNT(*) AS cnt\nFROM workspace.pbm_sim.findings_registry\nGROUP BY issue_category, severity",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "11bf0794",
+      "displayName": "plan_scorecard",
+      "config": {
+        "version": "1.1",
+        "source": "WITH cat_list AS (\n  SELECT\n    plan_id,\n    CONCAT_WS(', ', COLLECT_SET(issue_category)) AS categories\n  FROM workspace.pbm_sim.findings_registry\n  GROUP BY plan_id\n)\nSELECT\n  r.plan_id,\n  p.funding_model,\n  p.state_domicile,\n  r.affected_members,\n  r.total_findings,\n  ROUND(r.total_dollar_exposure, 2) AS total_dollar_exposure,\n  c.categories\nFROM workspace.pbm_sim.findings_plan_rollup r\nJOIN workspace.pbm_sim.plan_design p\n  ON r.plan_id = p.plan_id\nLEFT JOIN cat_list c\n  ON r.plan_id = c.plan_id\nORDER BY r.total_dollar_exposure DESC",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "9f69e315",
+      "displayName": "daily_trend",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  run_date,\n  total_exposure,\n  ROUND(AVG(total_exposure) OVER (\n    ORDER BY run_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW\n  ), 2) AS roll_14d_exposure\nFROM workspace.pbm_sim.daily_recon_log\nORDER BY run_date",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "3c80e77b",
+      "displayName": "convergence_slope",
+      "config": {
+        "version": "1.1",
+        "source": "WITH numbered AS (\n  SELECT\n    DATEDIFF(run_date, (SELECT MIN(run_date) FROM workspace.pbm_sim.daily_recon_log)) AS day_num,\n    total_exposure\n  FROM workspace.pbm_sim.daily_recon_log\n),\nrolling AS (\n  SELECT\n    day_num,\n    ROUND(AVG(total_exposure) OVER (\n      ORDER BY day_num ROWS BETWEEN 13 PRECEDING AND CURRENT ROW\n    ), 2) AS roll_14d\n  FROM numbered\n),\nlast30 AS (\n  SELECT * FROM rolling\n  WHERE day_num >= (SELECT MAX(day_num) - 29 FROM rolling)\n)\nSELECT\n  ROUND(\n    (COUNT(*) * SUM(day_num * roll_14d) - SUM(day_num) * SUM(roll_14d))\n    / NULLIF(COUNT(*) * SUM(day_num * day_num) - SUM(day_num) * SUM(day_num), 0),\n  2) AS slope_per_day,\n  CASE\n    WHEN slope_per_day < -10 THEN 'CONVERGING'\n    WHEN slope_per_day > 10 THEN 'DIVERGING'\n    ELSE 'STABLE'\n  END AS verdict\nFROM last30",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a5c0ebc0",
+      "displayName": "top_members",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  member_id,\n  plan_id,\n  ROUND(total_dollar_exposure, 2) AS total_dollar_exposure,\n  worst_severity,\n  overlap_count\nFROM workspace.pbm_sim.findings_member_rollup\nWHERE overlap_count > 1\nORDER BY overlap_count DESC, total_dollar_exposure DESC\nLIMIT 10",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "9a3c06b6",
+      "displayName": "overcharge_trend",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  run_date,\n  overcharge_rate_pct,\n  ROUND(AVG(overcharge_rate_pct) OVER (\n    ORDER BY run_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW\n  ), 3) AS roll_14d_rate\nFROM workspace.pbm_sim.daily_recon_log\nORDER BY run_date",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "d97d8041",
+      "displayName": "rate_stats",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  (SELECT overcharge_rate_pct\n   FROM workspace.pbm_sim.daily_recon_log\n   ORDER BY run_date DESC LIMIT 1) AS current_rate,\n  (SELECT MAX(overcharge_rate_pct)\n   FROM workspace.pbm_sim.daily_recon_log) AS peak_rate,\n  (SELECT ROUND(AVG(overcharge_rate_pct), 3)\n   FROM (SELECT overcharge_rate_pct\n         FROM workspace.pbm_sim.daily_recon_log\n         ORDER BY run_date DESC LIMIT 30)) AS avg_30d",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "0c271594",
+      "displayName": "compliance_check",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  p.plan_id,\n  p.funding_model,\n  p.state_domicile,\n  CASE\n    WHEN r.plan_id IS NULL THEN 'NO FINDINGS'\n    WHEN r.total_dollar_exposure > 200000 THEN 'ACTION REQUIRED'\n    WHEN r.total_dollar_exposure > 100000 THEN 'MONITOR'\n    WHEN r.total_dollar_exposure > 0 THEN 'REVIEW'\n    ELSE 'CLEAR'\n  END AS status\nFROM workspace.pbm_sim.plan_design p\nLEFT JOIN workspace.pbm_sim.findings_plan_rollup r\n  ON p.plan_id = r.plan_id\nORDER BY\n  CASE\n    WHEN r.total_dollar_exposure > 200000 THEN 1\n    WHEN r.total_dollar_exposure > 100000 THEN 2\n    WHEN r.total_dollar_exposure > 0 THEN 3\n    ELSE 4\n  END,\n  p.plan_id",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "00f6f758",
+      "displayName": "weekly_velocity",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  DATE_TRUNC('week', run_date) AS week_start,\n  ROUND(AVG(total_exposure), 2) AS avg_exposure,\n  ROUND(\n    AVG(total_exposure) - LAG(AVG(total_exposure)) OVER (ORDER BY DATE_TRUNC('week', run_date)),\n  2) AS delta,\n  CASE\n    WHEN delta < 0 THEN 'IMPROVING'\n    WHEN delta > 0 THEN 'WORSENING'\n    ELSE 'FLAT'\n  END AS direction\nFROM workspace.pbm_sim.daily_recon_log\nGROUP BY DATE_TRUNC('week', run_date)\nORDER BY week_start DESC\nLIMIT 8",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "b1f2a3d4",
+      "displayName": "kpi_sparkline",
+      "config": {
+        "version": "1.1",
+        "source": "SELECT\n  run_date,\n  total_overcharges,\n  total_exposure\nFROM workspace.pbm_sim.daily_recon_log\nORDER BY run_date",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "e4f5a6b7",
+      "displayName": "compliance_status_counts",
+      "config": {
+        "version": "1.1",
+        "source": "WITH status_calc AS (\n  SELECT\n    p.plan_id,\n    CASE\n      WHEN r.plan_id IS NULL THEN 'NO FINDINGS'\n      WHEN r.total_dollar_exposure > 200000 THEN 'ACTION REQUIRED'\n      WHEN r.total_dollar_exposure > 100000 THEN 'MONITOR'\n      WHEN r.total_dollar_exposure > 0 THEN 'REVIEW'\n      ELSE 'CLEAR'\n    END AS status\n  FROM workspace.pbm_sim.plan_design p\n  LEFT JOIN workspace.pbm_sim.findings_plan_rollup r\n    ON p.plan_id = r.plan_id\n)\nSELECT\n  status,\n  COUNT(*) AS plan_count\nFROM status_calc\nGROUP BY status",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "c3d4e5f6",
+      "displayName": "pareto_category",
+      "config": {
+        "version": "1.1",
+        "source": "WITH ranked AS (\n  SELECT\n    issue_category,\n    COUNT(*) AS findings,\n    SUM(COUNT(*)) OVER (ORDER BY COUNT(*) DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative,\n    SUM(COUNT(*)) OVER () AS total\n  FROM workspace.pbm_sim.findings_registry\n  GROUP BY issue_category\n)\nSELECT\n  issue_category,\n  findings,\n  ROUND(cumulative * 100.0 / total, 1) AS cumulative_pct,\n  ROUND(findings * 100.0 / total, 1) AS pct_of_total,\n  ROW_NUMBER() OVER (ORDER BY findings DESC) AS sort_order,\n  CASE WHEN cumulative * 100.0 / total <= 80 THEN 'Key Drivers' ELSE 'Minor Issues' END AS pareto_group\nFROM ranked\nORDER BY findings DESC",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a1b2c3d4",
+      "displayName": "top_plans_exposure",
+      "config": {
+        "version": "1.1",
+        "source": "WITH cat_list AS (\n  SELECT\n    plan_id,\n    CONCAT_WS(\", \", COLLECT_SET(issue_category)) AS categories\n  FROM workspace.pbm_sim.findings_registry\n  GROUP BY plan_id\n)\nSELECT\n  r.plan_id,\n  p.funding_model,\n  r.affected_members,\n  r.total_findings,\n  ROUND(r.total_dollar_exposure, 2) AS total_dollar_exposure,\n  c.categories\nFROM workspace.pbm_sim.findings_plan_rollup r\nJOIN workspace.pbm_sim.plan_design p\n  ON r.plan_id = p.plan_id\nLEFT JOIN cat_list c\n  ON r.plan_id = c.plan_id\nORDER BY r.total_dollar_exposure DESC\nLIMIT 15",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset.",
+            "displayName": "Count"
+          }
+        ]
+      }
+    }
+  ],
+  "pages": [
+    {
+      "name": "51f5d1f3",
+      "displayName": "Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "4880ad5a",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size: 18px;\">**KEY METRICS**</span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "dark": "#4C5C75"
+              },
+              "widgetBorderColor": {
+                "dark": "#A4C8CC"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "total-findings",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c6465a03",
+                  "fields": [
+                    {
+                      "name": "measure(count)",
+                      "expression": "MEASURE(`count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "TOTAL FINDINGS",
+                  "fields": []
+                },
+                "description": {
+                  "value": "Across audit categories",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(count)"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "dollar-exposure",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c6465a03",
+                  "fields": [
+                    {
+                      "name": "sum(dollar_exposure)",
+                      "expression": "SUM(`dollar_exposure`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "DOLLAR EXPOSURE",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(dollar_exposure)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "operand": {
+                            "type": "data-value",
+                            "value": "0"
+                          },
+                          "operator": ">"
+                        },
+                        "fontColor": "#F59E0B"
+                      }
+                    ]
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "02e0f3a8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c6465a03",
+                  "fields": [
+                    {
+                      "name": "measure(count)",
+                      "expression": "MEASURE(`count`)"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "`severity` IN ('CRITICAL')"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "CRITICAL FINDINGS",
+                  "fields": []
+                },
+                "description": {
+                  "value": "Across audit categories",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(count)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "operand": {
+                            "type": "data-value",
+                            "value": "0"
+                          },
+                          "operator": ">"
+                        },
+                        "fontColor": "#EF4444"
+                      }
+                    ]
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "8079e1ba",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a8d06554",
+                  "fields": [
+                    {
+                      "name": "measure(count)",
+                      "expression": "MEASURE(`count`)"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "IN_RANGE(`overlap_count`, 2, NULL)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "MULTI-CATEGORY MEMBERS",
+                  "fields": []
+                },
+                "description": {
+                  "value": "Across audit categories",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(count)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "style": {
+                    "fontColor": {
+                      "themeColorType": "visualizationColors",
+                      "position": 5
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "daily-exposure-trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "9f69e315",
+                  "fields": [
+                    {
+                      "name": "daily(run_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `run_date`)"
+                    },
+                    {
+                      "name": "sum(total_exposure)",
+                      "expression": "SUM(`total_exposure`)"
+                    },
+                    {
+                      "name": "sum(roll_14d_exposure)",
+                      "expression": "SUM(`roll_14d_exposure`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "title": {
+                  "value": "<span style=\"font-size: 14px;\">DAILY EXPOSURE TREND</span>",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "mark": {
+                "lineShape": "smooth",
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 1
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 3
+                  }
+                ]
+              },
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(run_date)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "sum(total_exposure)",
+                      "displayName": "Total exposure"
+                    },
+                    {
+                      "fieldName": "sum(roll_14d_exposure)",
+                      "displayName": "14-day Rolling exposure"
+                    }
+                  ],
+                  "axis": {
+                    "hideTitle": true,
+                    "hideGrid": false,
+                    "hideLabels": false
+                  },
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}"
+                },
+                "color": {
+                  "legend": {
+                    "hideTitle": true,
+                    "position": "top"
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 9,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "trend1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "3c80e77b",
+                  "fields": [
+                    {
+                      "name": "verdict",
+                      "expression": "`verdict`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "<span style=\"font-size: 14px;\">TREND</span>",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "verdict",
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "operand": {
+                            "type": "data-value",
+                            "value": "CONVERGING"
+                          },
+                          "operator": "="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operand": {
+                            "type": "data-value",
+                            "value": "STABLE"
+                          },
+                          "operator": "="
+                        }
+                      },
+                      {
+                        "condition": {
+                          "operand": {
+                            "type": "data-value",
+                            "value": "DIVERGING"
+                          },
+                          "operator": "="
+                        },
+                        "fontColor": {
+                          "themeColorType": "visualizationColors",
+                          "position": 4
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "dc737f14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "3c80e77b",
+                  "fields": [
+                    {
+                      "name": "sum(slope_per_day)",
+                      "expression": "SUM(`slope_per_day`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "<span style=\"font-size: 14px;\">Slope per day</span>",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(slope_per_day)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}/day"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 6,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "1d1cb3ae",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size: 18px;\">**FINDINGS BREAKDOWN**</span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "dark": "#4C5C75"
+              },
+              "widgetBorderColor": {
+                "dark": "#A4C8CC"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "56de015b",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "47ebc8b4",
+                  "fields": [
+                    {
+                      "name": "issue_category",
+                      "expression": "`issue_category`"
+                    },
+                    {
+                      "name": "sum(findings)",
+                      "expression": "SUM(`findings`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "title": {
+                  "value": "<span style=\"font-size: 14px;\">Findings by Category</span>",
+                  "fields": []
+                },
+                "description": {
+                  "value": "90-day rolling average - total\\_exposure from daily\\_recon\\_log",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "mark": {
+                "lineShape": "smooth"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(findings)",
+                  "displayName": "Count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "issue_category",
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "color": {
+                  "fieldName": "issue_category",
+                  "legend": {
+                    "hide": true
+                  },
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "COPAY_PROGRAM",
+                        "color": "#C98964"
+                      },
+                      {
+                        "value": "ELIGIBILITY",
+                        "color": "#7779D3"
+                      },
+                      {
+                        "value": "FILE_QUALITY",
+                        "color": "#7779D3"
+                      },
+                      {
+                        "value": "ROLLOVER",
+                        "color": "#7779D3"
+                      },
+                      {
+                        "value": "ACCUMULATOR",
+                        "color": "#7779D3"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "a9ee717b",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "2ea23e3e",
+                  "fields": [
+                    {
+                      "name": "sum(cnt)",
+                      "expression": "SUM(`cnt`)"
+                    },
+                    {
+                      "name": "severity",
+                      "expression": "`severity`"
+                    },
+                    {
+                      "name": "issue_category",
+                      "expression": "`issue_category`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "title": {
+                  "value": "<span style=\"font-size: 14px;\">Severity \u00d7 Category</span>",
+                  "fields": []
+                },
+                "description": {
+                  "value": "90-day rolling average - total\\_exposure from daily\\_recon\\_log",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "severity",
+                  "axis": {
+                    "hideTitle": true,
+                    "hideLabels": false
+                  },
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "issue_category",
+                  "axis": {
+                    "hideTitle": true,
+                    "hideLabels": false
+                  },
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "ACCUMULATOR",
+                        "COPAY_PROGRAM",
+                        "ELIGIBILITY",
+                        "FILE_QUALITY",
+                        "ROLLOVER"
+                      ]
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(cnt)",
+                  "displayName": "Count",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "single-hue",
+                      "baseColor": {
+                        "themeColorType": "visualizationColors",
+                        "position": 4
+                      }
+                    }
+                  }
+                },
+                "label": {
+                  "show": true,
+                  "text": {
+                    "fieldName": "sum(cnt)",
+                    "displayName": "Count"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "b47c9a58",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size: 18px;\">**PLAN-LEVEL DETAIL**</span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "dark": "#4C5C75"
+              },
+              "widgetBorderColor": {
+                "dark": "#A4C8CC"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "plan-scorecard",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "11bf0794",
+                  "fields": [
+                    {
+                      "name": "plan_id",
+                      "expression": "`plan_id`"
+                    },
+                    {
+                      "name": "funding_model",
+                      "expression": "`funding_model`"
+                    },
+                    {
+                      "name": "affected_members",
+                      "expression": "`affected_members`"
+                    },
+                    {
+                      "name": "total_findings",
+                      "expression": "`total_findings`"
+                    },
+                    {
+                      "name": "total_dollar_exposure",
+                      "expression": "`total_dollar_exposure`"
+                    },
+                    {
+                      "name": "categories",
+                      "expression": "`categories`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "<span style=\"font-size: 14px;\">Plan Scorecard</span>",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "plan_id",
+                    "displayName": "PLAN"
+                  },
+                  {
+                    "fieldName": "funding_model",
+                    "displayName": "FUNDING"
+                  },
+                  {
+                    "fieldName": "affected_members",
+                    "displayName": "MEMBERS"
+                  },
+                  {
+                    "fieldName": "total_findings",
+                    "displayName": "FINDINGS"
+                  },
+                  {
+                    "fieldName": "total_dollar_exposure",
+                    "displayName": "EXPOSURE",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "categories",
+                    "displayName": "CATEGORIES"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 7,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "exposure-by-plan",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1b2c3d4",
+                  "fields": [
+                    {
+                      "name": "sum(total_dollar_exposure)",
+                      "expression": "SUM(`total_dollar_exposure`)"
+                    },
+                    {
+                      "name": "plan_id",
+                      "expression": "`plan_id`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "<span style=\"font-size: 14px;\">Exposure by Plan</span>",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(total_dollar_exposure)",
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "plan_id",
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 17,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "5bb46579",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size:18px\">**MEMBER-LEVEL DETAIL**</span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "dark": "#4C5C75"
+              },
+              "widgetBorderColor": {
+                "dark": "#A4C8CC"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 23,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "top-multi-category-members",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a5c0ebc0",
+                  "fields": [
+                    {
+                      "name": "member_id",
+                      "expression": "`member_id`"
+                    },
+                    {
+                      "name": "plan_id",
+                      "expression": "`plan_id`"
+                    },
+                    {
+                      "name": "total_dollar_exposure",
+                      "expression": "`total_dollar_exposure`"
+                    },
+                    {
+                      "name": "worst_severity",
+                      "expression": "`worst_severity`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Top Multi-Category Members",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "member_id",
+                    "displayName": "MEMBER"
+                  },
+                  {
+                    "fieldName": "plan_id",
+                    "displayName": "PLAN"
+                  },
+                  {
+                    "fieldName": "total_dollar_exposure",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      },
+                      "hideGroupSeparator": true
+                    },
+                    "displayName": "EXPOSURE"
+                  },
+                  {
+                    "fieldName": "worst_severity",
+                    "displayName": "SEVERITY"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "overcharge-rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "9a3c06b6",
+                  "fields": [
+                    {
+                      "name": "daily(run_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `run_date`)"
+                    },
+                    {
+                      "name": "sum(overcharge_rate_pct)",
+                      "expression": "SUM(`overcharge_rate_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": {
+                  "value": "Overcharge Rate (%)",
+                  "fields": []
+                },
+                "description": {
+                  "value": "% of reconciled members with at least one overcharge",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "mark": {
+                "lineShape": "smooth",
+                "colors": [
+                  "#F59E0B"
+                ]
+              },
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(run_date)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(overcharge_rate_pct)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 3
+                    }
+                  },
+                  "displayName": "Daily rate",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 24,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "27f8afcf",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size:18px\">**COMPLIANCE AND WEEK-OVER-WEEK**</span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "dark": "#4C5C75"
+              },
+              "widgetBorderColor": {
+                "dark": "#A4C8CC"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 30,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "compliance-summary",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "e4f5a6b7",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "sum(plan_count)",
+                      "expression": "SUM(`plan_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Compliance Summary",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(plan_count)",
+                  "displayName": "Plans",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "status",
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "status",
+                  "legend": {
+                    "hide": true
+                  },
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "ACTION REQUIRED",
+                        "color": "#E78585"
+                      },
+                      {
+                        "value": "MONITOR",
+                        "color": "#DDAB5B"
+                      },
+                      {
+                        "value": "REVIEW",
+                        "color": "#75CEDB"
+                      },
+                      {
+                        "value": "CLEAR",
+                        "color": "#10B981"
+                      },
+                      {
+                        "value": "NO FINDINGS",
+                        "color": "#919191"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 31,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "current-rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "d97d8041",
+                  "fields": [
+                    {
+                      "name": "current_rate",
+                      "expression": "`current_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "<span style=\"font-size: 12px;\">CURRENT RATE</span>",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_rate",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 31,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "peak-rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "d97d8041",
+                  "fields": [
+                    {
+                      "name": "peak_rate",
+                      "expression": "`peak_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "<span style=\"font-size: 12px;\">PEAK RATE</span>",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "peak_rate",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  },
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "operand": {
+                            "type": "data-value",
+                            "value": "0"
+                          },
+                          "operator": ">"
+                        },
+                        "fontColor": "#EF4444"
+                      }
+                    ]
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 33,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "avg-30d-rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "d97d8041",
+                  "fields": [
+                    {
+                      "name": "avg_30d",
+                      "expression": "`avg_30d`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "<span style=\"font-size: 12px;\">30-DAY AVG</span>",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg_30d",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 35,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "week-over-week-exposure-change",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "00f6f758",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "avg_exposure",
+                      "expression": "`avg_exposure`"
+                    },
+                    {
+                      "name": "delta",
+                      "expression": "`delta`"
+                    },
+                    {
+                      "name": "direction",
+                      "expression": "`direction`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Week-over-Week Exposure Change",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "week_start",
+                    "format": {
+                      "type": "date-time",
+                      "date": "locale-short-month",
+                      "time": "none",
+                      "leadingZeros": true
+                    },
+                    "displayName": "WEEK"
+                  },
+                  {
+                    "fieldName": "avg_exposure",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      },
+                      "hideGroupSeparator": true
+                    },
+                    "displayName": "AVG EXPOSURE",
+                    "style": {
+                      "type": "basic"
+                    }
+                  },
+                  {
+                    "fieldName": "delta",
+                    "displayName": "DELTA",
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "0"
+                            },
+                            "operator": ">"
+                          },
+                          "foregroundColor": {
+                            "themeColorType": "visualizationColors",
+                            "position": 4
+                          },
+                          "fontWeight": 700,
+                          "fontStyle": "normal"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "0"
+                            },
+                            "operator": "<"
+                          },
+                          "foregroundColor": {
+                            "themeColorType": "visualizationColors",
+                            "position": 5
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "fieldName": "direction",
+                    "displayName": "DIRECTION",
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "0"
+                            },
+                            "operator": "<",
+                            "fieldName": "delta"
+                          },
+                          "foregroundColor": {
+                            "themeColorType": "visualizationColors",
+                            "position": 5
+                          },
+                          "fontWeight": 700,
+                          "fontStyle": "normal"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "0"
+                            },
+                            "operator": ">",
+                            "fieldName": "delta"
+                          },
+                          "foregroundColor": {
+                            "themeColorType": "visualizationColors",
+                            "position": 4
+                          },
+                          "fontWeight": 700,
+                          "fontStyle": "normal"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 31,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "f7a8b9c0",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size:18px\">**PARETO ANALYTICS**</span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "dark": "#4C5C75"
+              },
+              "widgetBorderColor": {
+                "dark": "#A4C8CC"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 37,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "pareto-findings",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c3d4e5f6",
+                  "fields": [
+                    {
+                      "name": "pareto_group",
+                      "expression": "`pareto_group`"
+                    },
+                    {
+                      "name": "issue_category",
+                      "expression": "`issue_category`"
+                    },
+                    {
+                      "name": "sum(findings)",
+                      "expression": "SUM(`findings`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": {
+                  "value": "Findings by Category",
+                  "fields": []
+                },
+                "description": {
+                  "value": "Bars colored by 80/20 group (cumulative line available when Custom Viz preview is enabled)",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "issue_category",
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(findings)",
+                  "displayName": "Findings",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "pareto_group",
+                  "legend": {
+                    "position": "top"
+                  },
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Key Drivers",
+                        "color": "#6366F1"
+                      },
+                      {
+                        "value": "Minor Issues",
+                        "color": "#919191"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 38,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "d1e2f3a4",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size:11px;color:#94A3B8\">Pipeline: NB\\_00 setup \u2192 NB\\_01 plan\\_design \u2192 NB\\_02 pbm\\_eligibility \u2192 NB\\_03 tpa\\_claims \u2192 NB\\_04 pbm\\_accumulator \u2192 NB\\_05 recon\\_engine \u2192 NB\\_06 findings \u2192 NB\\_07 rollups \u2192 NB\\_08 daily\\_recon\\_log</span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 45,
+            "width": 12,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#FAFAFB",
+        "dark": "#0F172A"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#1E293B"
+      },
+      "widgetBorderColor": {
+        "dark": "#334155"
+      },
+      "fontColor": {
+        "light": "#11171C",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#6366F1",
+        "#22D3EE",
+        "#F59E0B",
+        "#EF4444",
+        "#10B981",
+        "#8B5CF6",
+        "#99DDB4",
+        "#FCA4A1",
+        "#919191",
+        "#BF7080"
+      ],
+      "widgetHeaderAlignment": "LEFT",
+      "fontFamily": "Inter",
+      "textBoxVerticalAlign": "VERTICAL_ALIGN_CENTER",
+      "continuousGradient": {
+        "lightMode": {
+          "customSequential": {
+            "start": "#EFF3FF",
+            "end": "#08519C"
+          }
+        },
+        "darkMode": {
+          "customSequential": {
+            "start": "#EFF3FF",
+            "end": "#08519C"
+          }
+        }
+      },
+      "fontSettings": {
+        "base": {
+          "fontFamily": "Inter",
+          "fontSize": 13
+        },
+        "widgetTitle": {
+          "fontColor": {
+            "dark": "#E8ECF0"
+          }
+        }
+      },
+      "gridLineColor": {
+        "dark": "#4A4E53"
+      }
+    },
+    "applyModeEnabled": false
+  }
+}
