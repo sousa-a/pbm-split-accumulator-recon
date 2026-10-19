@@ -32,7 +32,7 @@ c) Inadequate plan rule implementation across program types
 d) Benefit year rollover - accumulators that don't reset cleanly on Jan 1
 
 
-![Split_accumulator_ecosystem](pbm-split-accumulator-recon/diagrams/spli_accumulator_diagram.png)
+![](pbm-split-accumulator-recon/diagrams/spli_accumulator_diagram.png)
 
 
 ## Pipeline Architecture
