@@ -32,6 +32,9 @@ c) Inadequate plan rule implementation across program types
 d) Benefit year rollover - accumulators that don't reset cleanly on Jan 1
 
 
+![Uploading spli_accumulator_diagram.png…]()
+
+
 ## Pipeline Architecture
 
 Ten PySpark notebooks execute through a central orchestrator. NB_00 provides shared utilities (structured logging, error handling, table validation) and is imported by every downstream notebook via `%run`. The orchestrator enforces a gate on NB_01 (the pipeline stops if inbound file quality fails), runs NB_02 through NB_05 as independent reconciliation stages, treats NB_06 as non-blocking, and chains NB_07 and NB_08 as dependent on prior results.
